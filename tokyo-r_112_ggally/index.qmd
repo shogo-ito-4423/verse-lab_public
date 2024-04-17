@@ -1,0 +1,169 @@
+---
+title: GGally::ggpairs() を見やすくする
+subtitle: Tokyo.R/112
+author: shogo-ito-4423
+format: 
+    revealjs:
+        fontsize: 24px
+editor: visual
+execute: 
+  echo: true
+---
+
+## 概要
+
+`GGally::ggpairs()`で散布図行列を作成するとき、離散変数が関わる関係を観察しやすくする工夫を共有します。
+
+1.  個々のグラフで離散変数の値が明確になるようにする
+2.  離散変数が表示される向きを揃える
+
+::: :::
+
+### 利用するパッケージ・データセット
+
+```{r}
+#| warning: false
+library(tidyverse)
+library(GGally)
+library(palmerpenguins)
+```
+
+::: :::
+
+### データの読み込み
+
+```{r}
+penguins_clean <- penguins %>% 
+  tidyr::drop_na(everything()) %>% # naを含む行を削除
+  dplyr::select(bill_length_mm, body_mass_g, sex, species)
+```
+
+## デフォルト設定で作成
+
+```{r}
+mat0 <- penguins_clean %>% 
+  GGally::ggpairs()
+mat0
+```
+
+## 課題1・上下どちらがどのカテゴリかわからない
+
+3行目など、上下どちらが`male`でどちらが`female`なのかわからない（正解は以下の通り）。
+
+```{r}
+mat0[3,1]
+```
+
+## 解決策1・stripが個々のグラフに表示されるようにする
+
+```{r}
+mat1 <- penguins_clean %>% 
+    GGally::ggpairs(
+          showStrips = TRUE
+    )
+mat1
+```
+
+## 課題2・離散変数の順序が変わってしまう
+
+3行4列目も「上段が`female`、下段が`male`」かと思いきや...
+
+```{r}
+mat1[3,4]
+```
+
+なんと「上段が`male`、下段が`female`」になる。
+
+## グラフによって原点が変わる
+
+```{r}
+#| column: screen-inset-shaded
+#| layout-nrow: 1
+
+mat1[3,1]
+mat1[3,4]
+```
+
+-   3行1列目のグラフ（左）は、**上から下**に向かって因子を並べる。
+-   3行4列目のグラフ（右）は、**下から上**に向かって因子を並べる。
+
+## 解決策2: グラフの種類を指定する時に、離散変数の順序を逆転させる
+
+離散変数に関するグラフを作成するとき、上下方向の離散変数の順序を逆転させる関数を作成する。
+
+```{r}
+gg_discrete_adj <- function(data, mapping, ..., fn) {
+    # 離散変数が上下方向に並ぶか判定する
+    horizontal <- GGally::is_horizontal(data, mapping)
+    
+    if (horizontal) {
+        # ggplot2のmappingからy軸方向の変数名を取り出す
+        yVal <- GGally::mapping_string(mapping$y)
+        # 離散変数を取り出す
+        yData <- data[[yVal]]
+        # 離散変数の順序を取り出す
+        data[[yVal]] <- factor(yData, levels = rev(levels(yData)))
+    }
+    
+    # 指定したGGally関数で描画する
+    fn(data, mapping, ...)
+}
+```
+
+## 作成した関数でグラフを描画する
+
+```{r}
+mat2 <- penguins_clean %>% 
+    GGally::ggpairs(
+          showStrips = TRUE,
+          lower = list(
+              combo = wrap(gg_discrete_adj, fn = GGally::ggally_facethist),
+              discrete = wrap(gg_discrete_adj, fn = GGally::ggally_facetbar)
+          )
+    )
+mat2
+```
+
+## こんどは向きがそろっている
+
+```{r}
+#| column: screen-inset-shaded
+#| layout-nrow: 1
+
+mat2[3,1]
+mat2[3,4]
+```
+
+## 番外編・もっと見やすくする
+
+-   グラフの種類と配置を工夫して、スペースを有効活用する。
+    -   因子ごとに複数のグラフを重ねるタイプは避ける。
+    -   因子の目盛りが第1列・最終行にくるようにする。
+
+```{r}
+#| column: margin
+
+mat3 <- penguins_clean %>% 
+    GGally::ggpairs(
+          lower = list(combo = wrap(gg_discrete_adj, fn = GGally::ggally_dot_no_facet), discrete = "ratio")
+    )
+mat3
+```
+
+## 課題
+
+-   どのグラフがどの向きに並ぶか、法則をつかめていない（公式ドキュメントと逆になるものもある）。
+-   離散変数同士のグラフに作成した関数を適用すると、軸が入れ替わってしまうことがある。
+-   散布図行列の上半分はできれば記述統計量を記載したい。
+    -   `GGally::ggally_statistic()`を利用すればできそう。
+    -   順序変数を判定させる方法が怪しい。
+-   もっと良い方法がありましたら、教えていただけると幸いです。
+
+## 参考資料
+
+-   公式ドキュメント
+    -   [ggpairs(): Pairwise plot matrix • GGally](https://ggobi.github.io/ggally/articles/ggpairs.html)
+    -   [ggally\_\*(): List of available high-level plots • GGally](https://ggobi.github.io/ggally/articles/ggally_plots.html)
+-   [x軸を並べ替えたい #R - Qiita](https://qiita.com/kazutan/items/7840f743d642122d1219)
+-   [【Rデータ整理】Factor 内の順序を入れ替える](https://mom-neuroscience.com/r-factor-levels/)
+-   [［R］ベクトルの要素を逆順に並び替える: Golden State](http://goldenstate.cocolog-nifty.com/blog/2019/07/post-fa754d.html)
